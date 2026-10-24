@@ -1,5 +1,5 @@
 // Public configuration contains no credentials. Audio and chat use the secured WS bridge.
-import {voiceIdentity} from './voice-profile.mjs';
+import {voiceIdentity} from './deepgram-settings.mjs';
 export function createVoiceApi({env=process.env}={}) {
   return function voiceApi(req,res,next=()=>{res.writeHead(404);res.end();}) {
     const path=(req.url||'').split('?')[0];if(!path.startsWith('/api/voice/'))return next();

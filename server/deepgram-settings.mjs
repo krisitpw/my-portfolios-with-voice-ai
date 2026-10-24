@@ -1,7 +1,21 @@
 import {GREETING,SYSTEM_PROMPT} from './portfolio-context.mjs';
 import {ENQUIRY_FUNCTION} from './enquiry-tool.mjs';
 import {voiceErrorMessage} from '../src/voice-errors.js';
-import {voiceIdentity,DEFAULT_VOICE_SPEED,DEFAULT_VOICE_EXPRESSIVITY} from './voice-profile.mjs';
+// Use the same default model in public config and the actual Deepgram settings.
+// Naveen is Deepgram's adult male Indian English voice.
+export const DEFAULT_VOICE_MODEL='flux-naveen-en';
+export const DEFAULT_VOICE_SPEED=0.95;
+export const DEFAULT_VOICE_EXPRESSIVITY=0;
+
+export function voiceIdentity(env={}){
+  const model=env.DEEPGRAM_TTS_MODEL?.trim()||DEFAULT_VOICE_MODEL;
+  const accent={
+    'flux-marcus-en':'American English',
+    'flux-naveen-en':'Indian English',
+    'flux-conor-en':'British English',
+  }[model]||'English';
+  return {model,accent};
+}
 export const AGENT_URL='wss://agent.deepgram.com/v1/agent/converse';
 export function deepgramSettings(env={},sampleRate=48000) {
   if(![16000,24000,32000,44100,48000].includes(sampleRate))throw Error('Unsupported microphone sample rate');
