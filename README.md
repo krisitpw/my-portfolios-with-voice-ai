@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 # Krishna Singh — React Portfolio + Deepgram Voice Assistant
 
 React/Vite portfolio with Inter typography, a dark grid, metallic cards, 3D accents, and an illustrated conversational avatar in a right-side popup. All 23 website entries and the GitHub link are retained.
@@ -143,3 +144,7 @@ When all five fields are valid, the popup automatically opens a review form with
 Provider references: [Deepgram function definitions](https://developers.deepgram.com/docs/build-a-function-call), [function requests](https://developers.deepgram.com/docs/voice-agent-function-call-request), and [function responses](https://developers.deepgram.com/docs/voice-agent-function-call-response).
 
 Pre-change backup: `backups/before-ai-lead-collection-20261024-085742.tar.gz` (verified; credentials and lead records excluded).
+=======
+# my-portfolios-with-voice-ai
+my-portfolios-with-voice-ai
+>>>>>>> 5927f7969c3d9ab431beaa40e743ce3ea3208e31
