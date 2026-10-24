@@ -5,7 +5,7 @@ import avatar from '../assets/krishna-avatar-clean.jpg';
 import VideoAvatar from './VideoAvatar';
 import LeadForm from './LeadForm';
 import {missingEnquiryFields} from '../lead-fields';
-const statusLabels={idle:'Ready to help',connecting:'Connecting…',speaking:'Speaking · you can interrupt',listening:'Listening · go ahead', 'requesting-mic':'Allow microphone access',transcribing:'Understanding your question…',thinking:'Thinking…',ready:'Ready for your question',unavailable:'Voice assistant coming soon'};
+const statusLabels={idle:'Ready to help',connecting:'Connecting…',error:'Connection unavailable',speaking:'Speaking · you can interrupt',listening:'Listening · go ahead', 'requesting-mic':'Allow microphone access',transcribing:'Understanding your question…',thinking:'Thinking…',ready:'Ready for your question',unavailable:'Voice assistant coming soon'};
 export default function VoiceAssistant({open,onOpen,onClose,onEnquiry,draft,onDraftChange}) {
   const [input,setInput]=useState(''),[view,setView]=useState('conversation');
   const voice=useVoiceAssistant(open,{draft,onDraftChange,reviewing:view==='enquiry'});const end=useRef(null),launcher=useRef(null),close=useRef(null);

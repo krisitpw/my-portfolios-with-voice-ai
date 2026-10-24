@@ -2,6 +2,8 @@ import {useCallback,useEffect,useRef,useState} from 'react';
 import {createPCMPlayback} from './pcm-audio';
 import workletURL from './pcm-worklet.js?worker&url';
 import {cleanEnquiryPatch,emptyEnquiry} from './lead-fields';
+import {openVoiceConnection,voiceSocketURL} from './voice-connection';
+import {voiceErrorMessage} from './voice-errors';
 
 export function useVoiceAssistant(open,{draft={},onDraftChange,reviewing=false}={}) {
   const [status,setStatus]=useState('idle'),[messages,setMessages]=useState([]),[error,setError]=useState(''),[micEnabled,setMicEnabled]=useState(true),[level,setLevel]=useState(0),[configured,setConfigured]=useState(false),[needsPlay,setNeedsPlay]=useState(false);
@@ -12,8 +14,8 @@ export function useVoiceAssistant(open,{draft={},onDraftChange,reviewing=false}=
   const phase=useCallback(value=>{setStatus(value);},[]);
   const stop=useCallback(()=>{
     const current=session.current;session.current=null;
-    if(current){current.closed=true;clearTimeout(current.timeout);current.abort.abort();current.stream?.getTracks().forEach(track=>track.stop());current.input?.disconnect();current.source?.disconnect();current.gain?.disconnect();current.playback?.clear();if(current.socket){current.socket.onclose=null;current.socket.onerror=null;current.socket.onmessage=null;current.socket.close();}current.context?.close().catch(()=>{});}
-    speechFrame.current={playing:false,level:0,time:0};setLevel(0);setNeedsPlay(false);
+    if(current){current.closed=true;clearTimeout(current.configTimer);current.connection?.close();current.abort.abort();current.stream?.getTracks().forEach(track=>track.stop());current.input?.disconnect();current.source?.disconnect();current.gain?.disconnect();current.playback?.clear();current.context?.close().catch(()=>{});}
+    speechFrame.current={playing:false,level:0,time:0};setLevel(0);setNeedsPlay(false);setConfigured(false);
   },[]);
   function currentSession(current){return session.current===current&&!current.closed;}
   function append(role,content){
@@ -26,9 +28,9 @@ export function useVoiceAssistant(open,{draft={},onDraftChange,reviewing=false}=
     try{
       if(!navigator.mediaDevices?.getUserMedia||!current.context.audioWorklet)throw Error('Voice input is unavailable in this browser. You can type below.');
       const stream=await navigator.mediaDevices.getUserMedia({audio:{channelCount:1,echoCancellation:true,noiseSuppression:true,autoGainControl:true}});
-      if(!currentSession(current)||current.muted){stream.getTracks().forEach(track=>track.stop());return;}
+      if(!currentSession(current)||current.muted||enquiryRef.current.reviewing){stream.getTracks().forEach(track=>track.stop());return;}
       current.stream=stream;await current.context.audioWorklet.addModule(workletURL);
-      if(!currentSession(current)||current.muted){stream.getTracks().forEach(track=>track.stop());current.stream=null;return;}
+      if(!currentSession(current)||current.muted||enquiryRef.current.reviewing){stream.getTracks().forEach(track=>track.stop());current.stream=null;return;}
       current.source=current.context.createMediaStreamSource(stream);current.input=new AudioWorkletNode(current.context,'portfolio-pcm-input');current.gain=current.context.createGain();current.gain.gain.value=0;
       current.input.port.onmessage=event=>{
         if(!currentSession(current)||current.muted||!current.ready||current.socket.readyState!==WebSocket.OPEN)return;
@@ -50,30 +52,29 @@ export function useVoiceAssistant(open,{draft={},onDraftChange,reviewing=false}=
       if(!Context)throw Error('This browser cannot play the voice conversation. Please try a current browser.');
       current.context=new Context({sampleRate:48000});current.context.resume().catch(()=>{});
       current.playback=createPCMPlayback(current.context,{speechFrame,onSpeaking:()=>{if(currentSession(current)){phase('speaking');if(current.context.state!=='running')setNeedsPlay(true);}},onDrain:()=>{if(!currentSession(current))return;phase(current.stream&&!current.muted?'listening':'ready');startMic(current);}});
-      const response=await fetch('/api/voice/config',{signal:current.abort.signal});if(!response.ok)throw Error('The voice assistant could not load its server settings.');const config=await response.json();if(!currentSession(current))return;
-      if(!config.configured){setError('The voice assistant is being set up. Use the contact links to reach Krishna.');phase('unavailable');return;}
-      const protocol=location.protocol==='https:'?'wss:':'ws:';current.socket=new WebSocket(`${protocol}//${location.host}/api/voice/agent`);current.socket.binaryType='arraybuffer';
-      current.timeout=setTimeout(()=>{if(currentSession(current)){setError('Deepgram took too long to connect. Restart the conversation to try again.');stop();phase('ready');}},35000);
-      current.socket.onopen=()=>{if(currentSession(current))current.socket.send(JSON.stringify({type:'Start',sampleRate:current.context.sampleRate,draft:enquiryRef.current.draft}));};
-      current.socket.onmessage=event=>{
+      current.configTimer=setTimeout(()=>{if(currentSession(current)){setError('The voice configuration took too long to load. Restart and check your connection.');stop();phase('error');}},15000);
+      const response=await fetch('/api/voice/config',{signal:current.abort.signal});if(!response.ok)throw Error('The voice assistant could not load its server settings.');const config=await response.json();clearTimeout(current.configTimer);if(!currentSession(current))return;
+      if(!config.configured){setError(voiceErrorMessage('MISSING_KEY'));stop();phase('unavailable');return;}
+      current.connection=openVoiceConnection({
+        url:voiceSocketURL(location),sampleRate:current.context.sampleRate,draft:enquiryRef.current.draft,
+        onFailure:message=>{if(currentSession(current)){setError(message);stop();phase('error');}},
+        onReady:()=>{if(currentSession(current)){current.ready=true;setConfigured(true);if(current.context.state!=='running')setNeedsPlay(true);phase('ready');}},
+        onAudio:data=>{if(currentSession(current)&&!current.dropAudio)try{current.playback.push(new Uint8Array(data));}catch(err){setError(err.message);stop();phase('error');}},
+        onEvent:message=>{
         if(!currentSession(current))return;
-        if(event.data instanceof ArrayBuffer){if(!current.dropAudio)try{current.playback.push(new Uint8Array(event.data));}catch(err){setError(err.message);stop();phase('ready');}return;}
-        let message;try{message=JSON.parse(event.data);}catch{return;}
         switch(message.type){
-          case 'SessionReady':current.ready=true;clearTimeout(current.timeout);setConfigured(true);if(current.context.state!=='running')setNeedsPlay(true);phase('ready');break;
           case 'ConversationText':append(message.role,message.content);if(message.role==='assistant'){current.dropAudio=false;}break;
           case 'UserStartedSpeaking':current.playback.clear();current.dropAudio=true;phase('listening');break;
           case 'AgentThinking':current.dropAudio=false;phase('thinking');break;
           case 'AgentAudioDone':current.playback.markDone();break;
           case 'EnquiryDraft':enquiryRef.current.onDraftChange?.(cleanEnquiryPatch(message.patch).patch);setEnquiryReady(message.status==='ready_for_review');setEnquiryRevision(value=>value+1);break;
           case 'InjectionRefused':setError('Please wait for the current answer to finish, then try your question again.');phase('ready');break;
-          case 'SessionError':setError(message.message||'The Deepgram session ended. Restart to continue.');stop();setConfigured(false);phase('ready');break;
           default:break;
         }
-      };
-      current.socket.onerror=()=>{if(currentSession(current)){setError('Could not connect to the Deepgram voice service. Please restart or check the server key.');stop();setConfigured(false);phase('ready');}};
-      current.socket.onclose=()=>{if(currentSession(current)){setError('The voice session ended. Restart to continue.');stop();setConfigured(false);phase('ready');}};
-    }catch(err){if(currentSession(current)){setError(err.message||'Could not start the voice session.');stop();setConfigured(false);phase('ready');}}
+        },
+      });
+      current.socket=current.connection.socket;
+    }catch(err){if(currentSession(current)){setError(err.message||'Could not start the voice session.');stop();phase('error');}}
   },[stop,phase]);
   useEffect(()=>{if(open)connect();else{stop();phase('idle');}return stop;},[open,connect,stop,phase]);
   useEffect(()=>{const current=session.current;if(!current?.ready||current.socket?.readyState!==WebSocket.OPEN)return;const timer=setTimeout(()=>{if(currentSession(current)&&current.socket.readyState===WebSocket.OPEN)current.socket.send(JSON.stringify({type:'UpdateEnquiryDraft',draft:{...emptyEnquiry,...cleanEnquiryPatch(draft).patch}}));},250);return()=>clearTimeout(timer);},[draft]);
